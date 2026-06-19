@@ -3,16 +3,47 @@
 #include <cmath>
 #include <stack>
 
+/*
+
+Este archivo "interpreta" (ejecuta) la sentence generada por el L-System y la
+convierte en geometría 2D lista para OpenGL.
+
+Idea: Turtle Graphics (tortuga)
+- Mantenemos un estado de tortuga: posición (x,y) y dirección (ángulo).
+- La sentence contiene símbolos que la tortuga interpreta:
+    'F' : avanzar y dibujar un segmento
+    '+' : girar
+    '-' : girar al lado contrario
+    '[' : guardar el estado (push) y aumentar profundidad (depth)
+    ']' : restaurar estado (pop) y disminuir profundidad
+
+La profundidad (depth) funciona como una heurística para:
+- Hacer el tronco más grueso en la base (depth pequeño)
+- Cambiar la densidad de hojas (más hojas hacia la copa)
+- Aplicar viento principalmente en las ramas altas (depth grande)
+
+Salida (ForestGeometry):
+- branches: líneas (ramitas finas)
+- trunks  : triángulos (segmentos gruesos)
+- leaves  : triángulos (hojas)
+- bushes  : triángulos (arbustos)
+- ground  : triángulos (pasto)
+*/
+
+// Estado mínimo de nuestra "tortuga" 2D
 struct TurtleState2D {
-    float x, y;
-    float angleDeg;
+    float x, y;       // posición actual
+    float angleDeg;   // dirección en grados (0 = derecha, 90 = arriba)
 };
 
 float ProceduralForest::degToRad(float deg) {
+    // Conversión común porque C++ usa radianes en sin/cos.
     return deg * (3.14159265359f / 180.0f);
 }
 
 void ProceduralForest::pushVertex(std::vector<float>& v, float x, float y, float z, float r, float g, float b) {
+    // Formato intercalado por vértice: pos(3) + color(3).
+    // Esto permite usar un único VBO con stride fijo.
     v.push_back(x);
     v.push_back(y);
     v.push_back(z);
@@ -33,6 +64,10 @@ void ProceduralForest::pushThickSegment(std::vector<float>& v,
     float x1, float y1, float x2, float y2,
     float thickness,
     float r, float g, float b) {
+
+    // Dibujar un "segmento grueso":
+    // Un segmento (x1,y1) -> (x2,y2) se convierte en un QUAD (rectángulo) con grosor.
+    // En OpenGL lo dibujamos como 2 triángulos.
 
     float dx = x2 - x1;
     float dy = y2 - y1;
@@ -66,6 +101,7 @@ void ProceduralForest::appendTreeGeometry(
     const TreeInstance& tree,
     float windDeg) {
 
+    // RNG determinista: misma semilla => mismo árbol (misma variación aleatoria).
     std::mt19937 rng(tree.seed);
 
     auto rand01 = [&]() -> float {
@@ -120,32 +156,30 @@ void ProceduralForest::appendTreeGeometry(
 
             // Ramitas laterales extra SOLO en la copa para ensanchar el árbol (horizontal),
             // evitando aumentar altura (no subimos iteraciones ni baseLength).
-            // Aumentamos cantidad para crear más "tips" y evitar árboles pelados.
-            if (depth >= crownDepth && rand01() < 0.75f) {
-                float sideLen = length * (0.22f + 0.18f * rand01()); // corto
-                float sideAng = 75.0f + 40.0f * rand01();           // ~75..115 grados
+            // Versión moderada: más tips arriba sin crear "manchas" exageradas.
+            if (depth >= crownDepth && rand01() < 0.45f) {
+                float sideLen = length * (0.24f + 0.16f * rand01()); // corto
+                float sideAng = 75.0f + 35.0f * rand01();           // ~75..110 grados
 
-                const int sideBranches = 4;
+                const int sideBranches = 3;
                 for (int k = 0; k < sideBranches; k++) {
-                    // distribuir alternando izquierda/derecha con leve variación
                     float sign = (k % 2 == 0) ? -1.0f : 1.0f;
-                    float aDeg = angleDeg + sign * (sideAng * (0.75f + 0.20f * rand01())) + randSigned() * 10.0f;
+                    float aDeg = angleDeg + sign * (sideAng * (0.85f + 0.15f * rand01())) + randSigned() * 8.0f;
 
                     float ar = degToRad(aDeg);
                     float sx = newX + sideLen * std::cos(ar);
                     float sy = newY + sideLen * std::sin(ar);
 
-                    // Dibujamos como ramita fina para no engrosar la copa.
+                    // Ramita fina
                     pushVertex(out.branches, newX, newY, 0.0f, p.branchR, p.branchG, p.branchB);
                     pushVertex(out.branches, sx, sy, 0.0f, p.branchR, p.branchG, p.branchB);
 
-                    // Mini-cluster de hojas en la punta de cada ramita para rellenar huecos.
-                    // Mantenerlo compacto para que sea "copa" y no hojas por todo el tronco.
-                    int miniLeaves = 6 + static_cast<int>(rand01() * 7.0f); // 6..12
-                    float miniSpread = p.leafSize * (1.6f + rand01() * 1.4f);
+                    // Mini-cluster de hojas en la punta (más hojas que antes, pero aún compacto)
+                    int miniLeaves = 10 + static_cast<int>(rand01() * 11.0f); // 10..20
+                    float miniSpread = p.leafSize * (2.0f + rand01() * 1.6f);
 
                     for (int ml = 0; ml < miniLeaves; ml++) {
-                        float s = p.leafSize * (0.45f + rand01() * 0.65f);
+                        float s = p.leafSize * (0.50f + rand01() * 0.75f);
 
                         float jitterA = degToRad(rand01() * 360.0f);
                         float cx = sx + std::cos(jitterA) * miniSpread;
@@ -159,7 +193,7 @@ void ProceduralForest::appendTreeGeometry(
                         float x3 = cx + std::cos(a + 4.1887902f) * s;
                         float y3 = cy + std::sin(a + 4.1887902f) * s;
 
-                        float tint = 0.80f + rand01() * 0.35f;
+                        float tint = 0.78f + rand01() * 0.38f;
                         pushTriangle(out.leaves, x1, y1, x2, y2, x3, y3,
                             p.leafR * tint, p.leafG * tint, p.leafB * tint);
                     }
@@ -205,9 +239,10 @@ void ProceduralForest::appendTreeGeometry(
 
             // "Pompon" extra en la copa: una bola de hojas (muy frondoso) para simular masa densa arriba.
             // Esto se mantiene estocástico (seed) y parametrizado por leafSize, cumpliendo la rúbrica.
-            if (likelyTip && rand01() < 0.35f) {
-                float ballR = p.leafSize * (6.0f + rand01() * 6.0f); // radio de copa local
-                int tris = 80 + static_cast<int>(rand01() * 80.0f);  // 80..160 triángulos
+            // Subimos un poco la frecuencia pero sin exagerar: rellena la parte superior en más árboles.
+            if (likelyTip && rand01() < 0.50f) {
+                float ballR = p.leafSize * (5.5f + rand01() * 6.5f); // radio de copa local
+                int tris = 90 + static_cast<int>(rand01() * 90.0f);  // 90..180 triángulos
 
                 for (int ti = 0; ti < tris; ti++) {
                     float rr = ballR * std::sqrt(rand01());

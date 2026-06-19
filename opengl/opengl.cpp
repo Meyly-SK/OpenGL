@@ -11,7 +11,48 @@
 #include "src/LSystem.h"
 #include "src/ProceduralForest.h"
 
- // Vista estática (sin WASD) + auto-encuadre
+/*
+
+IDEA GENERAL
+- Un L-System es un sistema de reescritura de strings:
+    * Empieza con un axioma (por ejemplo "F")
+    * Aplica reglas (por ejemplo F -> "F[+F]F[-F]...") varias iteraciones
+    * El resultado es una "sentence" (string) que representa una estructura ramificada
+
+- En este proyecto, el L-System NO dibuja. Solo genera texto.
+  El dibujado ocurre al interpretar la string con una "tortuga" 2D (turtle graphics):
+    * 'F'  : avanzar y dibujar un segmento
+    * '+'/'-': rotar
+    * '['  : guardar estado (posición/ángulo) y aumentar profundidad (depth)
+    * ']'  : restaurar estado y disminuir profundidad (depth)
+
+ARQUITECTURA (separación de responsabilidades)
+- LSystem (src/LSystem.*):
+    Genera la sentence (string) usando reglas estocásticas y una semilla RNG.
+- ProceduralForest (src/ProceduralForest.*):
+    Interpreta la sentence y produce geometría (vértices) lista para OpenGL.
+- Shader (src/Shader.*):
+    Carga/compila shaders GLSL y expone funciones para usar uniforms.
+
+RENDER POR "STREAMS"
+Para dibujar fácil y con distintas primitivas, generamos varios vectores de vértices:
+- branches : GL_LINES      (ramas finas)
+- trunks   : GL_TRIANGLES  (tronco/ramas principales con grosor)
+- leaves   : GL_TRIANGLES  (hojas)
+- bushes   : GL_TRIANGLES  (arbustos)
+- ground   : GL_TRIANGLES  (pasto / cobertura)
+- bgVerts  : GL_TRIANGLES  (cielo/montañas/nubes; geometría fija)
+
+AUTO-ENCUADRE (auto-framing)
+En cada frame calculamos un bounding box (minX,maxX,minY,maxY) de la geometría.
+Con eso calculamos:
+- uCenter = centro del bounding box
+- uScale  = escala para que toda la escena "entre" en la pantalla
+- uAspect = para corregir el aspect ratio (ancho/alto de la ventana)
+Los shaders aplican estos uniforms a las posiciones antes de rasterizar.
+*/
+
+// Vista estática (sin WASD) + auto-encuadre
 static float g_aspect = 1200.0f / 800.0f;
 
 void responsive(GLFWwindow* window, int width, int height);
@@ -19,58 +60,69 @@ void userInput(GLFWwindow* window);
 
 
 static LSystem makeTreeLSystem() {
-    // Reglas estocรกsticas: 'F' puede expandirse de distintas maneras.
-    // Esto ayuda a que cada รกrbol sea distinto incluso con mismas iteraciones.
+    // Definimos un L-System simple para árboles.
+    //
+    // Símbolos que usamos:
+    //  - 'F'  : avanzar y dibujar (en la interpretación, genera un segmento)
+    //  - '+'  : girar a un lado
+    //  - '-'  : girar al lado contrario
+    //  - '['  : guardar estado de tortuga (posición+ángulo) -> inicia rama hija
+    //  - ']'  : restaurar estado -> termina rama hija
+    //
+    // Reglas estocásticas: 'F' puede expandirse de distintas maneras.
+    // Esto hace que con la MISMA cantidad de iteraciones, cada árbol pueda verse distinto.
     LSystem::RuleSet rules;
     rules['F'] = {
-        "F[+F]F[-F][F]",
-        "F[+F]F",
-        "F[-F]F",
-        "FF"
+        "F[+F]F[-F][F]", // ramificación doble + continuación
+        "F[+F]F",        // rama a la derecha
+        "F[-F]F",        // rama a la izquierda
+        "FF"             // crecimiento recto (más alto)
     };
 
+    // Axioma: punto de inicio del sistema (la primera sentence)
     return LSystem("F", std::move(rules));
 }
 
 static std::vector<TreeInstance> makeForestInstances() {
+    // Creamos varias instancias de árboles (posición + parámetros + semilla).
+    // La idea es simular un "bosque" con dos filas:
+    //  - backRow (fondo): más pequeño y más oscuro (para dar profundidad)
+    //  - frontRow (frente): más grande y más saturado
     std::vector<TreeInstance> trees;
     trees.reserve(8);
 
-    // Diseño: 2 filas (fondo y frente) para dar sensación de bosque.
-    // Fondo: más pequeño, más oscuro, un poco más arriba.
-    // Frente: más grande, colores más vivos.
+    // Posiciones base en X (en coordenadas "mundo" antes del auto-encuadre)
     const float xs[8] = { -0.90f, -0.62f, -0.35f, -0.10f, 0.15f, 0.38f, 0.62f, 0.88f };
 
     for (int i = 0; i < 8; i++) {
         TreeInstance t;
         bool backRow = (i % 2 == 0);
 
-        t.baseX = xs[i] + (backRow ? -0.03f : 0.03f); // leve jitter para que no sea "perfecto"
+        // Posición base (pequeño jitter para que no se vea perfectamente alineado)
+        t.baseX = xs[i] + (backRow ? -0.03f : 0.03f);
         t.baseY = backRow ? -0.75f : -0.85f;
+
+        // Semilla por árbol: hace determinista la aleatoriedad (mismo árbol cada ejecución)
         t.seed = 1337u + static_cast<unsigned int>(i) * 101u;
 
-        // Variar parámetros por árbol (parametrizado)
+        // Parámetros "artísticos" por árbol (todo está parametrizado en TreeParams)
         t.params.iterations = backRow ? (3 + (i % 2)) : (4 + (i % 2)); // fondo 3..4, frente 4..5
 
-        // Aumentamos un poco el tamaño de la fila de fondo para "alargar" los mini árboles
         float sizeScale = backRow ? 0.95f : 1.15f;
+        t.params.baseLength = sizeScale * (0.035f + 0.006f * (i % 4)); // largo de segmento base
+        t.params.angleBaseDeg = 18.0f + 3.0f * (i % 6);                // ángulo promedio de ramas
+        t.params.angleJitterDeg = 6.0f + 1.5f * (i % 5);               // variación aleatoria del ángulo
 
-        t.params.baseLength = sizeScale * (0.035f + 0.006f * (i % 4));
-        t.params.angleBaseDeg = 18.0f + 3.0f * (i % 6);
-        t.params.angleJitterDeg = 6.0f + 1.5f * (i % 5);
-
-        // Más frondoso arriba (aumentamos probabilidad de hoja global)
+        // Hojas (probabilidad y tamaño). La copa se refuerza luego en ProceduralForest.
         t.params.leafProbability = (backRow ? 0.35f : 0.45f) + 0.03f * (i % 3);
         t.params.leafSize = sizeScale * (0.010f + 0.0025f * (i % 5));
 
-        // Colores por fila
+        // Colores por fila para simular "atmósfera" (fondo más azulado/desaturado)
         if (backRow) {
-            // Fondo (lejos): menos saturación + más azulado (atmósfera)
             t.params.branchR = 0.26f; t.params.branchG = 0.20f; t.params.branchB = 0.14f;
             t.params.leafR = 0.14f;  t.params.leafG = 0.60f;  t.params.leafB = 0.20f;
             t.params.bushR = 0.05f;  t.params.bushG = 0.34f;  t.params.bushB = 0.10f;
         } else {
-            // Frente (cerca): más vivo y contrastado
             t.params.branchR = 0.42f; t.params.branchG = 0.28f; t.params.branchB = 0.13f;
             t.params.leafR = 0.10f;  t.params.leafG = 0.85f;  t.params.leafB = 0.10f;
             t.params.bushR = 0.05f;  t.params.bushG = 0.55f;  t.params.bushB = 0.05f;
@@ -82,8 +134,7 @@ static std::vector<TreeInstance> makeForestInstances() {
     return trees;
 }
 
-int main()
-{
+int main() {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
