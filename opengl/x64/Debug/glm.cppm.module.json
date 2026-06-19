@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "x64\\Debug\\glm.cppm.obj",
+            "outputs": [
+                "D:\\VisualStudioWorkspace\\ComputacionGrafica\\opengl\\opengl\\x64\\Debug\\vc145.pdb",
+                "x64\\Debug\\",
+                "D:\\VisualStudioWorkspace\\ComputacionGrafica\\opengl\\opengl\\x64\\Debug\\glm.cppm.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "glm",
+                    "source-path": "d:\\visualstudioworkspace\\computaciongrafica\\opengl\\opengl\\src\\vendor\\glm\\glm.cppm",
+                    "is-interface": true
+                }
+            ],
+            "requires": []
+        }
+    ]
+}

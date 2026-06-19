@@ -1,0 +1,101 @@
+# =========================
+# Build directories
+# =========================
+build/
+cmake-build-*/
+out/
+bin/
+obj/
+lib/
+
+# =========================
+# CMake
+# =========================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# =========================
+# Compiled binaries
+# =========================
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.o
+*.obj
+
+# =========================
+# Debug symbols
+# =========================
+*.pdb
+*.ilk
+*.dSYM/
+*.map
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# IDEs / Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =========================
+# Visual Studio
+# =========================
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# =========================
+# Code::Blocks
+# =========================
+*.cbp
+*.depend
+*.layout
+
+# =========================
+# CLion
+# =========================
+cmake-build-debug/
+cmake-build-release/
+
+# =========================
+# Dependencies / package managers
+# =========================
+vcpkg_installed/
+packages/
+_deps/
+
+# =========================
+# FetchContent / ExternalProject
+# =========================
+*/_deps/
+external/*/build/
+third_party/*/build/
+
+# =========================
+# Generated files
+# =========================
+*.generated.*
+
+third_party/glfw/build/
+third_party/glew/build/
