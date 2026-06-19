@@ -118,6 +118,54 @@ void ProceduralForest::appendTreeGeometry(
             // que parezca un árbol con parte superior ancha y frondosa (estilo "nube").
             const int crownDepth = 4;
 
+            // Ramitas laterales extra SOLO en la copa para ensanchar el árbol (horizontal),
+            // evitando aumentar altura (no subimos iteraciones ni baseLength).
+            // Aumentamos cantidad para crear más "tips" y evitar árboles pelados.
+            if (depth >= crownDepth && rand01() < 0.75f) {
+                float sideLen = length * (0.22f + 0.18f * rand01()); // corto
+                float sideAng = 75.0f + 40.0f * rand01();           // ~75..115 grados
+
+                const int sideBranches = 4;
+                for (int k = 0; k < sideBranches; k++) {
+                    // distribuir alternando izquierda/derecha con leve variación
+                    float sign = (k % 2 == 0) ? -1.0f : 1.0f;
+                    float aDeg = angleDeg + sign * (sideAng * (0.75f + 0.20f * rand01())) + randSigned() * 10.0f;
+
+                    float ar = degToRad(aDeg);
+                    float sx = newX + sideLen * std::cos(ar);
+                    float sy = newY + sideLen * std::sin(ar);
+
+                    // Dibujamos como ramita fina para no engrosar la copa.
+                    pushVertex(out.branches, newX, newY, 0.0f, p.branchR, p.branchG, p.branchB);
+                    pushVertex(out.branches, sx, sy, 0.0f, p.branchR, p.branchG, p.branchB);
+
+                    // Mini-cluster de hojas en la punta de cada ramita para rellenar huecos.
+                    // Mantenerlo compacto para que sea "copa" y no hojas por todo el tronco.
+                    int miniLeaves = 6 + static_cast<int>(rand01() * 7.0f); // 6..12
+                    float miniSpread = p.leafSize * (1.6f + rand01() * 1.4f);
+
+                    for (int ml = 0; ml < miniLeaves; ml++) {
+                        float s = p.leafSize * (0.45f + rand01() * 0.65f);
+
+                        float jitterA = degToRad(rand01() * 360.0f);
+                        float cx = sx + std::cos(jitterA) * miniSpread;
+                        float cy = sy + std::sin(jitterA) * miniSpread;
+
+                        float a = degToRad(rand01() * 360.0f);
+                        float x1 = cx + std::cos(a) * s;
+                        float y1 = cy + std::sin(a) * s;
+                        float x2 = cx + std::cos(a + 2.0943951f) * s;
+                        float y2 = cy + std::sin(a + 2.0943951f) * s;
+                        float x3 = cx + std::cos(a + 4.1887902f) * s;
+                        float y3 = cy + std::sin(a + 4.1887902f) * s;
+
+                        float tint = 0.80f + rand01() * 0.35f;
+                        pushTriangle(out.leaves, x1, y1, x2, y2, x3, y3,
+                            p.leafR * tint, p.leafG * tint, p.leafB * tint);
+                    }
+                }
+            }
+
             float depthBoost = 0.08f * static_cast<float>(depth);
             float leafProb = p.leafProbability + depthBoost;
             if (depth >= crownDepth) leafProb = 0.95f;
