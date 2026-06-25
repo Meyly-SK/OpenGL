@@ -34,6 +34,11 @@ unsigned int load_texture(const char* texture_path);
 glm::mat4 model;
 glm::vec3 myPos = glm::vec3(0.0f);
 
+// Patrol
+glm::vec3 patrolPos = glm::vec3(0.0f);
+float patrolSpeed = 0.8f;
+float patrolRange = 1.5f;
+
 int main()
 {
 	//Inicializar GLFW
@@ -144,6 +149,16 @@ int main()
 		glBindTexture(GL_TEXTURE_2D, contianer_texture);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, face_texture);
+		glBindVertexArray(VAO);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		// Patrol object - moves side to side
+		patrolPos.x = std::sin(glfwGetTime() * patrolSpeed) * patrolRange;
+
+		glm::mat4 patrolModel = glm::mat4(1.0f);
+		patrolModel = glm::scale(patrolModel, glm::vec3(0.25f, 0.25f, 0.25f));
+		patrolModel = glm::translate(patrolModel, patrolPos);
+		myShader.setMat4("model", patrolModel);
 		glBindVertexArray(VAO);
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 
